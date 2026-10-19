@@ -61,5 +61,7 @@ The first version, 0.1.0: the Hardcharger™ port of
 - CI: the README install, ruff (lint and format), mypy, Python 3.11 to 3.14, and a
   lowest-dependencies job; `release.yml` runs all of it on the tagged commit before building and
   creating a GitHub Release (no PyPI yet).
+- The driver is built from the hardcharger-adbc commit pinned in `.github/hardcharger-adbc.ref`
+  (`9a087be`); moving the pin is its own change, merged with a green CI run.
 - `scripts/test-in-docker.sh` runs the suite in a Linux container on a laptop, with the server
   from the `:main` image and the driver built at the pinned commit.

@@ -454,6 +454,9 @@ hardcharger-adbc commit pinned in `.github/hardcharger-adbc.ref`:
 DBT_HARDCHARGER_TEST_ADBC_SRC=~/git/hardcharger-adbc scripts/test-in-docker.sh -n 6
 ```
 
+The driver stays pinned: to move to a newer hardcharger-adbc, change the commit in
+`.github/hardcharger-adbc.ref` on its own, and merge it only with a green CI run.
+
 Lint, format and type checks: `ruff check .`, `ruff format --check .` and `mypy`.
 
 ## 📦 Releasing
