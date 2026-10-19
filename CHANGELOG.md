@@ -65,3 +65,8 @@ The first version, 0.1.0: the Hardcharger™ port of
   (`9a087be`); moving the pin is its own change, merged with a green CI run.
 - `scripts/test-in-docker.sh` runs the suite in a Linux container on a laptop, with the server
   from the `:main` image and the driver built at the pinned commit.
+
+### Documentation
+
+- The README banner is the new Hardcharger™ logo, the bull mascot lockup in a light and a dark
+  version that follows the reader's color scheme, in place of the GizmoData banner card.
