@@ -1,0 +1,35 @@
+name: hardcharger-server from its image
+description: >
+  Copies hardcharger-server (and its libraries) out of the private image
+  ghcr.io/gizmodata/hardcharger, pulled with the workflow's GITHUB_TOKEN (packages: read; the
+  package must grant this repository read access under "Manage Actions access"), and sets
+  DBT_HARDCHARGER_TEST_SERVER_BINARY. Fails, never skips, when the image can't be pulled.
+  Linux runners only.
+inputs:
+  image:
+    description: The image, e.g. ghcr.io/gizmodata/hardcharger:main
+    required: true
+  token:
+    description: github.token
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        TOKEN: ${{ inputs.token }}
+      run: |
+        printf '%s' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+        if ! docker pull -q "$IMAGE"; then
+          echo "::error::can't pull $IMAGE with this workflow's GITHUB_TOKEN: grant $GITHUB_REPOSITORY read access to the hardcharger package (package settings, Manage Actions access)"
+          exit 1
+        fi
+        id=$(docker create "$IMAGE")
+        docker cp "$id:/opt/hardcharger" "$RUNNER_TEMP/hardcharger"
+        docker rm "$id" >/dev/null
+        docker logout ghcr.io >/dev/null
+        binary="$RUNNER_TEMP/hardcharger/bin/hardcharger-server"
+        "$binary" --version
+        echo "server image $IMAGE: $(docker inspect --format '{{.Created}} {{.Id}}' "$IMAGE")"
+        echo "DBT_HARDCHARGER_TEST_SERVER_BINARY=$binary" >> "$GITHUB_ENV"

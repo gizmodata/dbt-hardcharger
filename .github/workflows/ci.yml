@@ -1,0 +1,198 @@
+name: ci
+
+# Every check, on every push and pull request; also the release gate (release.yml calls this
+# workflow on the tagged commit):
+#   - install: the README's Installation commands, as written (after the clones), then the
+#     driver's wheel for the other jobs;
+#   - lint: ruff (lint and format) and mypy;
+#   - test: dbt's adapter test suite and this adapter's own tests (sign-in, S3, DuckLake, the
+#     README's examples) against real hardcharger-server processes, Python 3.11 to 3.14;
+#   - lowest-dependencies: the same suite on the lowest versions pyproject.toml allows.
+# A missing server, S3 gateway or secret FAILS a job; nothing is skipped.
+#
+# Access while Hardcharger is internal, with no personal token:
+#   - ghcr.io/gizmodata/hardcharger:main (hardcharger-server), pulled with this workflow's
+#     GITHUB_TOKEN: the package grants this repository read access (package settings, Manage
+#     Actions access).
+#   - gizmodata/hardcharger-adbc (the driver, at the commit in .github/hardcharger-adbc.ref) and
+#     gizmodata/warp-sql-adbc (its Go dependency), each through a read-only deploy key of that
+#     repository kept here as a secret: DEPLOY_KEY_HARDCHARGER_ADBC, DEPLOY_KEY_WARP_SQL_ADBC.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  packages: read
+
+# "ci-" keeps this group apart from release.yml's when release calls this workflow: there
+# github.workflow is the caller's name, and a called workflow with its caller's group deadlocks.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # The server the suites run against: Hardcharger's main branch, which its CI publishes on
+  # every green push. Pin a :sha-<short> tag here to reproduce an old run.
+  HARDCHARGER_IMAGE: ghcr.io/gizmodata/hardcharger:main
+  S3_GATEWAY_IMAGE: versity/versitygw:v1.8.0
+
+jobs:
+  install:
+    name: README install, and the driver's wheel
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Deploy keys for the internal repositories
+        env:
+          DEPLOY_KEY_HARDCHARGER_ADBC: ${{ secrets.DEPLOY_KEY_HARDCHARGER_ADBC }}
+          DEPLOY_KEY_WARP_SQL_ADBC: ${{ secrets.DEPLOY_KEY_WARP_SQL_ADBC }}
+        run: |
+          # One SSH host alias per repository, each with its own key, and git rewrites every
+          # spelling of that repository's URL to its alias; Go's module fetches go through the
+          # same rewrites.
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          for repo in hardcharger-adbc warp-sql-adbc; do
+            var="DEPLOY_KEY_$(echo "$repo" | tr 'a-z-' 'A-Z_')"
+            key="${!var}"
+            if [ -z "$key" ]; then
+              echo "::error::the $var secret is not set: the private key of a read-only deploy key of gizmodata/$repo"
+              exit 1
+            fi
+            printf '%s\n' "$key" > ~/.ssh/"$repo" && chmod 600 ~/.ssh/"$repo"
+            printf 'Host github.com-%s\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/%s\n  IdentitiesOnly yes\n' "$repo" "$repo" >> ~/.ssh/config
+            for from in "https://github.com/gizmodata/$repo" "ssh://git@github.com/gizmodata/$repo" "git@github.com:gizmodata/$repo"; do
+              git config --global --add url."git@github.com-$repo:gizmodata/$repo".insteadOf "$from"
+            done
+          done
+          echo "GOPRIVATE=github.com/gizmodata/*" >> "$GITHUB_ENV"
+
+      - name: The repositories, as the README's clones leave them
+        run: |
+          ref=$(tr -d '[:space:]' < .github/hardcharger-adbc.ref)
+          [ -n "$ref" ] || { echo "::error::.github/hardcharger-adbc.ref is empty"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/readme"
+          git clone --quiet git@github.com:gizmodata/hardcharger-adbc.git "$RUNNER_TEMP/readme/hardcharger-adbc"
+          git -C "$RUNNER_TEMP/readme/hardcharger-adbc" checkout --quiet "$ref"
+          git -C "$RUNNER_TEMP/readme/hardcharger-adbc" log -1 --format='hardcharger-adbc at %h %s'
+          ln -s "$GITHUB_WORKSPACE" "$RUNNER_TEMP/readme/dbt-hardcharger"
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ runner.temp }}/readme/hardcharger-adbc/go/go.mod
+          cache-dependency-path: ${{ runner.temp }}/readme/hardcharger-adbc/go/go.sum
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: README Installation, as written (after its git clones)
+        working-directory: ${{ runner.temp }}/readme
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/scripts/readme_block.py" install > install.sh
+          grep -q '^git clone ' install.sh
+          grep -v '^git clone ' install.sh > install-after-clones.sh
+          cat install-after-clones.sh
+          bash -euxo pipefail install-after-clones.sh
+          .venv/bin/dbt --version | tee dbt-version.txt
+          grep -q 'hardcharger: 0.1.0' dbt-version.txt
+          .venv/bin/python -c "import adbc_driver_hardcharger.dbapi, dbt.adapters.hardcharger"
+
+      - name: The driver's wheel, from the same build
+        working-directory: ${{ runner.temp }}/readme/hardcharger-adbc
+        run: |
+          cp go/build/libadbc_driver_hardcharger.so python/src/adbc_driver_hardcharger/
+          python3 -m pip install -q build
+          python3 -m build --wheel --outdir "$RUNNER_TEMP/wheel" python
+          ls "$RUNNER_TEMP/wheel"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: adbc-driver-hardcharger-wheel
+          path: ${{ runner.temp }}/wheel/*.whl
+          retention-days: 7
+
+  lint:
+    needs: install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: adbc-driver-hardcharger-wheel
+          path: wheel
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install
+        run: python -m pip install -q wheel/*.whl -e ".[test,dev]"
+      - name: ruff (lint)
+        run: ruff check .
+      - name: ruff (format)
+        run: ruff format --check .
+      - name: mypy
+        run: mypy
+
+  test:
+    needs: install
+    name: test (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in sync with requires-python and the classifiers in pyproject.toml.
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/hardcharger-server
+        with:
+          image: ${{ env.HARDCHARGER_IMAGE }}
+          token: ${{ github.token }}
+      - name: S3 gateway (for the S3 test)
+        run: |
+          docker run -d --rm --name dbt-hardcharger-test-s3 -p 127.0.0.1:9000:9000 \
+            -e ROOT_ACCESS_KEY=dbt-hardcharger-test -e ROOT_SECRET_KEY=dbt-hardcharger-test-secret \
+            --tmpfs /data "$S3_GATEWAY_IMAGE" --port :9000 posix --sidecar /tmp /data
+      - uses: actions/download-artifact@v8
+        with:
+          name: adbc-driver-hardcharger-wheel
+          path: wheel
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install -q wheel/*.whl -e ".[test]"
+      - name: Tests (unit and functional; fail without a server, never skip)
+        run: python -m pytest -n 4 -rfEs
+
+  lowest-dependencies:
+    needs: install
+    name: test (lowest dependencies, Python 3.11)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/hardcharger-server
+        with:
+          image: ${{ env.HARDCHARGER_IMAGE }}
+          token: ${{ github.token }}
+      - name: S3 gateway (for the S3 test)
+        run: |
+          docker run -d --rm --name dbt-hardcharger-test-s3 -p 127.0.0.1:9000:9000 \
+            -e ROOT_ACCESS_KEY=dbt-hardcharger-test -e ROOT_SECRET_KEY=dbt-hardcharger-test-secret \
+            --tmpfs /data "$S3_GATEWAY_IMAGE" --port :9000 posix --sidecar /tmp /data
+      - uses: actions/download-artifact@v8
+        with:
+          name: adbc-driver-hardcharger-wheel
+          path: wheel
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: Install the lowest versions pyproject.toml allows
+        run: |
+          uv venv --python 3.11 .venv
+          uv pip install --python .venv/bin/python --resolution lowest-direct wheel/*.whl -e ".[test]"
+          uv pip list --python .venv/bin/python | grep -E '^(dbt-core|dbt-adapters|dbt-common|pyarrow|duckdb|pandas) '
+      - name: Tests
+        run: .venv/bin/python -m pytest -n 4 -rfEs

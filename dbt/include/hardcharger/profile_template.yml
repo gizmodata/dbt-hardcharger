@@ -1,0 +1,27 @@
+fixed:
+  type: hardcharger
+prompts:
+  host:
+    hint: "your Hardcharger server's host name"
+  port:
+    default: 31337
+    type: "int"
+  user:
+    hint: "dev username"
+  password:
+    hint: "dev password"
+    hide_input: true
+  database:
+    hint: "default database (catalog); empty for the server's"
+    default: ""
+  schema:
+    hint: "default schema; empty for the server's"
+    default: ""
+  tls:
+    hint: "TLS (HTTPS); false only for a plain-HTTP development server"
+    type: "bool"
+    default: True
+  threads:
+    hint: "1 or more"
+    type: "int"
+    default: 1

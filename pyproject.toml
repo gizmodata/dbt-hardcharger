@@ -1,0 +1,100 @@
+[build-system]
+requires = ["setuptools>=84.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbt-hardcharger"
+version = "0.1.0"
+description = "The dbt adapter for Hardcharger™, GizmoData™'s DuckDB 2.0 server"
+readme = "README.md"
+authors = [{ name = "GizmoData", email = "support@gizmodata.com" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"  # pyarrow 26 and pandas 3 need 3.11
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+]
+keywords = ["dbt", "hardcharger", "warp-sql", "duckdb", "adbc", "gizmodata"]
+# Floors are the latest releases (2026-10-19); CI's lowest-dependencies job installs exactly
+# these. adbc-driver-hardcharger isn't on PyPI yet: CI builds it from a pinned commit of
+# gizmodata/hardcharger-adbc (.github/hardcharger-adbc.ref).
+dependencies = [
+    # dbt's own packages within their minor version, as dbt adapters do: a new dbt minor
+    # release gets its own dbt-hardcharger release.
+    "dbt-core~=1.12.6",
+    "dbt-common~=1.39.0",
+    "dbt-adapters~=1.24.5",
+    "adbc-driver-hardcharger>=0.1.0",
+    "pyarrow>=26.0.0",
+    "duckdb>=1.5.6",
+    "pandas>=3.0.6",
+]
+
+[project.optional-dependencies]
+test = [
+    "dbt-tests-adapter>=1.20.0",
+    "pytest>=9.1.1",
+    "pytest-xdist>=3.8.0",
+    "freezegun>=1.5.5",
+    "pytz>=2026.5",
+    "cryptography>=50.0.2",
+    "pyjwt>=2.15.1",
+    "boto3>=1.43.114",
+]
+dev = [
+    "ruff>=0.17.1",
+    "mypy>=2.4.0",
+    "build>=1.6.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/gizmodata/dbt-hardcharger"
+Repository = "https://github.com/gizmodata/dbt-hardcharger"
+Changelog = "https://github.com/gizmodata/dbt-hardcharger/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+namespaces = true
+include = ["dbt", "dbt.*"]
+
+[tool.setuptools.package-data]
+"dbt.include.hardcharger" = ["*.yml", "macros/*.sql", "macros/*/*.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".local-test"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dbt.adapters.hardcharger", "dbt.include.hardcharger"]
+
+[tool.mypy]
+namespace_packages = true
+# `dbt` is a namespace package shared with dbt-core/dbt-adapters.
+explicit_package_bases = true
+ignore_missing_imports = true
+show_error_codes = true
+files = ["dbt/adapters/hardcharger"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/functional"]
+# With -n, each file's tests stay on one worker: tests/functional/test_readme.py runs its
+# servers one after another on the README's port.
+addopts = "--dist loadfile"
+filterwarnings = [
+    "ignore:.*'soft_unicode' has been renamed to 'soft_str'*:DeprecationWarning",
+    "ignore:unclosed file .*:ResourceWarning",
+]

@@ -1,0 +1,100 @@
+name: release
+
+# On a vX.Y.Z tag: every CI job on the tagged commit (ci.yml: the README install, lint and
+# type checks, the full test suite on Python 3.11 to 3.14 and on the lowest dependencies),
+# then the wheel and sdist and a GitHub Release with the tag's CHANGELOG.md section.
+#
+# No PyPI yet: dbt-hardcharger and adbc-driver-hardcharger stay unpublished until Hardcharger
+# goes public. workflow_dispatch runs the tests and the build only: the release needs a tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Its own group: ci.yml, called below, takes "ci-<caller's name>-<ref>".
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      packages: read  # the server image the suites run against
+    secrets: inherit  # ci.yml's deploy keys
+
+  build:
+    needs: tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The tag matches the version everywhere, and CHANGELOG.md has its section
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          [ -n "$version" ] || { echo "::error::no version in pyproject.toml"; exit 1; }
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME != v$version"; exit 1; }
+          grep -qx "__version__ = \"$version\"" dbt/adapters/hardcharger/__init__.py || { echo "::error::__init__.py is not $version"; exit 1; }
+          grep -qx "version = \"$version\"" dbt/adapters/hardcharger/__version__.py || { echo "::error::__version__.py is not $version"; exit 1; }
+          grep -qx "version: $version" dbt/include/hardcharger/dbt_project.yml || { echo "::error::dbt_project.yml is not $version"; exit 1; }
+          grep -q "^## \[$version\]" CHANGELOG.md || { echo "::error::no CHANGELOG.md section for $version"; exit 1; }
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Build the wheel and sdist
+        run: |
+          python -m pip install -q build
+          python -m build --sdist --wheel --outdir dist .
+          ls dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            index($0, "## [" ver "]") == 1 { p = 1; next }
+            p && /^## \[/ { exit }
+            p { print }
+          ' CHANGELOG.md > release-notes.md
+          [ -s release-notes.md ] || { echo "::error::the CHANGELOG.md section for $version is empty"; exit 1; }
+          cat release-notes.md
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            index($0, "## [" ver "]") == 1 { p = 1; next }
+            p && /^## \[/ { exit }
+            p { print }
+          ' CHANGELOG.md > release-notes.md
+          [ -s release-notes.md ] || { echo "::error::the CHANGELOG.md section for $version is empty"; exit 1; }
+      - uses: softprops/action-gh-release@v3
+        with:
+          body_path: release-notes.md
+          files: dist/*

@@ -1,0 +1,683 @@
+import importlib.util
+import itertools
+import os
+import tempfile
+import traceback
+from collections.abc import Iterable, Iterator
+from typing import Any, Dict, List, Optional, Sequence, Union
+
+import duckdb
+import pyarrow as pa
+from dbt.adapters.base.column import Column as BaseColumn
+from dbt.adapters.base.impl import ConstraintSupport
+from dbt.adapters.base.meta import available
+from dbt.adapters.contracts.connection import AdapterResponse
+from dbt.adapters.sql import SQLAdapter as adapter_cls
+from dbt_common.contracts.constraints import ConstraintType
+from dbt_common.exceptions import DbtRuntimeError
+
+from dbt.adapters.hardcharger import HardchargerConnectionManager
+from dbt.adapters.hardcharger.column import DuckDBColumn
+from dbt.adapters.hardcharger.connections import with_ducklake_metadata_hint
+from dbt.adapters.hardcharger.relation import HardchargerRelation
+
+
+class _HardchargerSession:
+    """Session proxy passed as the `session` arg to Python models.
+
+    Delegates everything to a local in-process DuckDB (so `session.sql(...)`,
+    `session.execute(...)`, `session.register(...)` and friends keep working
+    exactly as before), but adds `remote_sql(query)` — a pushdown escape
+    hatch that runs arbitrary SQL on the Hardcharger server over the existing
+    ADBC connection and returns the result as a local DuckDB relation,
+    without first pulling whole upstream tables across the wire.
+
+    Intended use: when a Python model only needs a small slice of a large
+    server-side table, `dbt.ref('big_table')` would stream the entire table
+    back to the client. `session.remote_sql("select ... where ...")` lets
+    the filter/aggregation run on Hardcharger and only the result crosses the
+    network.
+    """
+
+    def __init__(self, local_db, adbc_conn):
+        self._local_db = local_db
+        self._adbc_conn = adbc_conn
+        self._remote_counter = 0
+
+    def remote_sql(self, query: str) -> "_DuckDBDataFrame":
+        """Execute `query` on the Hardcharger server and return a local relation.
+
+        The Arrow result is registered in the local DuckDB under a unique
+        name so the returned `_DuckDBDataFrame` is fully chainable
+        (`.filter()`, `.project()`, `.df()`, `.to_arrow_table()`, etc.)
+        and can be returned directly from a Python model.
+        """
+        cursor = self._adbc_conn.cursor()
+        try:
+            cursor.execute(operation=query)
+            arrow_table = cursor.fetch_arrow_table()
+        finally:
+            cursor.close()
+
+        self._remote_counter += 1
+        view_name = f"_hardcharger_remote_{self._remote_counter}"
+        self._local_db.register(view_name=view_name, python_object=arrow_table)
+        return _DuckDBDataFrame(relation=self._local_db.query(query=f"SELECT * FROM {view_name}"))
+
+    def __getattr__(self, name):
+        # Delegate any attribute we don't own to the underlying local DuckDB
+        # connection so existing python-model code keeps working unchanged.
+        return getattr(self._local_db, name)
+
+
+class _DuckDBDataFrame:
+    """Wrapper around a DuckDB relation that also supports pandas-style operations.
+
+    DuckDB relations support .limit(), .filter('sql'), .project(), etc.
+    This wrapper adds pandas-style column access (df.col > 5) and
+    .filter(boolean_series) by converting to pandas when needed.
+    """
+
+    def __init__(self, relation):
+        self._rel = relation
+        self._pdf = None
+
+    def _to_pandas(self):
+        if self._pdf is None:
+            self._pdf = self._rel.df()
+        return self._pdf
+
+    # DuckDB relation methods
+    def limit(self, n):
+        return _DuckDBDataFrame(relation=self._rel.limit(n))
+
+    def project(self, *args):
+        return _DuckDBDataFrame(relation=self._rel.project(*args))
+
+    def order(self, *args):
+        return _DuckDBDataFrame(relation=self._rel.order(*args))
+
+    def fetchall(self):
+        return self._rel.fetchall()
+
+    def to_arrow_table(self):
+        return self._rel.to_arrow_table()
+
+    def df(self):
+        return self._to_pandas()
+
+    # Pandas-style column access for filter expressions (df.id > 5)
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._to_pandas()[name]
+
+    # Pandas-style .filter() with boolean Series
+    def filter(self, expr):
+        if isinstance(expr, str):
+            return _DuckDBDataFrame(relation=self._rel.filter(expr))
+        # pandas boolean Series
+        pdf = self._to_pandas()
+        return pdf[expr]
+
+    def __repr__(self):
+        return repr(self._rel)
+
+
+def duckdb_column_definitions(schema: pa.Schema) -> str:
+    """Render an Arrow schema as DuckDB column definitions for CREATE TABLE,
+    e.g. `"id" BIGINT, "amount" DECIMAL(12,2), "tags" VARCHAR[]`.
+
+    Used to create a table for an empty result, which ADBC bulk ingest can't
+    do ("Stream finished before first message sent"). An in-process DuckDB
+    maps the Arrow types, so the table gets exactly the column types a
+    non-empty ingest would have created.
+    """
+    local_db = duckdb.connect(database=":memory:")
+    try:
+        relation = local_db.from_arrow(arrow_object=schema.empty_table())
+        return ", ".join(
+            '"{}" {}'.format(name.replace('"', '""'), data_type)
+            for name, data_type in zip(relation.columns, relation.types)
+        )
+    finally:
+        local_db.close()
+
+
+_CLOSED_STREAM_MESSAGE = """\
+Python model returned a record batch stream that was already closed.
+
+dbt-hardcharger streams a returned RecordBatchReader to Hardcharger *after*
+model() returns, so its source must still be open then. A reader from an
+ADBC cursor.fetch_record_batch() is closed as soon as its cursor or
+connection is closed -- including by leaving a `with` block inside model().
+
+Either `yield` the reader from a generator instead of returning it --
+dbt-hardcharger streams it, then resumes the generator so the `with` block
+closes the source:
+
+    def extract():
+        with connect(...) as conn, conn.cursor() as cursor:
+            cursor.execute(operation=query)
+            yield cursor.fetch_record_batch()
+
+    return extract()
+
+or materialize the result before the source closes, e.g. return
+cursor.fetch_arrow_table() instead of cursor.fetch_record_batch()."""
+
+
+def _nonempty_stream_or_empty_table(
+    schema: pa.Schema, batches: Iterable[pa.RecordBatch]
+) -> Union[pa.Table, pa.RecordBatchReader]:
+    """Return a reader over `batches`, or an empty table if they hold no rows.
+
+    Peeks past leading zero-row batches so an empty stream is detected
+    without materializing the non-empty case — ADBC bulk ingest can't
+    create a table from an empty stream, so callers create it from the
+    schema instead.
+    """
+    batches = iter(batches)
+    for batch in batches:
+        if batch.num_rows:
+            return pa.RecordBatchReader.from_batches(
+                schema=schema, batches=itertools.chain([batch], batches)
+            )
+    return schema.empty_table()
+
+
+def _drain_reader_then_resume(
+    reader: pa.RecordBatchReader, items: Iterator[Any]
+) -> Iterator[pa.RecordBatch]:
+    """Yield `reader`'s batches, then resume the generator that yielded it.
+
+    Supports a model that `yield`s a reader from inside a `with` block
+    holding its source open (e.g. an ADBC connection and cursor): the
+    generator stays suspended — source open — while the reader is streamed,
+    and resuming it afterwards lets the `with` block close the source.
+    """
+    yield from reader
+    if next(items, None) is not None:
+        raise DbtRuntimeError(
+            msg="Python model's generator yielded more than one item after a "
+            "RecordBatchReader; yield exactly one RecordBatchReader."
+        )
+
+
+def _to_arrow_data(df: Any) -> Union[pa.Table, pa.RecordBatchReader]:
+    """Normalize a Python model's return value to Arrow data for bulk ingest,
+    turning Arrow's "stream already closed" error into an actionable one."""
+    try:
+        return _to_arrow_data_unguarded(df=df)
+    except pa.ArrowInvalid as err:
+        if "already been closed" not in str(err):
+            raise
+        raise DbtRuntimeError(msg=_CLOSED_STREAM_MESSAGE) from err
+
+
+def _to_arrow_data_unguarded(df: Any) -> Union[pa.Table, pa.RecordBatchReader]:
+    """Normalize a Python model's return value to Arrow data for bulk ingest.
+
+    DuckDB relations, pandas DataFrames, `pa.Table`s and single
+    `pa.RecordBatch`es become a `pa.Table`. Record batch streams — a
+    `pa.RecordBatchReader`, any object implementing the Arrow PyCapsule
+    stream protocol (`__arrow_c_stream__`, e.g. a polars DataFrame), or an
+    iterable/generator of `pa.RecordBatch`es, or a generator yielding a
+    single `pa.RecordBatchReader` — become a
+    `pa.RecordBatchReader`, so ADBC ingest streams them to Hardcharger batch
+    by batch without collecting the whole result in client memory.
+    """
+    import pandas as pd
+
+    if isinstance(df, (_DuckDBDataFrame, duckdb.DuckDBPyRelation)):
+        return df.to_arrow_table()
+    if isinstance(df, pa.Table):
+        return df
+    if isinstance(df, pa.RecordBatch):
+        return pa.Table.from_batches(batches=[df])
+    if isinstance(df, pd.DataFrame):
+        return pa.Table.from_pandas(df=df, preserve_index=False)
+    if isinstance(df, pa.RecordBatchReader):
+        return _nonempty_stream_or_empty_table(schema=df.schema, batches=df)
+    if hasattr(df, "__arrow_c_stream__"):
+        reader = pa.RecordBatchReader.from_stream(data=df)
+        return _nonempty_stream_or_empty_table(schema=reader.schema, batches=reader)
+    if isinstance(df, Iterable) and not isinstance(df, (str, bytes)):
+        items = iter(df)
+        first = next(items, None)
+        if isinstance(first, pa.RecordBatch):
+            return _nonempty_stream_or_empty_table(
+                schema=first.schema, batches=itertools.chain([first], items)
+            )
+        if isinstance(first, pa.RecordBatchReader):
+            return _nonempty_stream_or_empty_table(
+                schema=first.schema,
+                batches=_drain_reader_then_resume(reader=first, items=items),
+            )
+        raise DbtRuntimeError(
+            msg="Python model returned an iterable whose first item is "
+            f"{type(first).__name__}, expected pyarrow.RecordBatch (or a "
+            "single yielded pyarrow.RecordBatchReader). An empty iterable has "
+            "no schema to create the table from — return an empty "
+            "pyarrow.Table or RecordBatchReader instead."
+        )
+    # Anything else pandas-convertible
+    return pa.Table.from_pandas(df=df, preserve_index=False)
+
+
+class HardchargerAdapter(adapter_cls):
+    """
+    Controls actual implementation of adapter, and ability to override certain methods.
+    """
+
+    Relation = HardchargerRelation
+    ConnectionManager = HardchargerConnectionManager
+
+    CONSTRAINT_SUPPORT = {
+        ConstraintType.check: ConstraintSupport.ENFORCED,
+        ConstraintType.not_null: ConstraintSupport.ENFORCED,
+        ConstraintType.unique: ConstraintSupport.ENFORCED,
+        ConstraintType.primary_key: ConstraintSupport.ENFORCED,
+        ConstraintType.foreign_key: ConstraintSupport.ENFORCED,
+    }
+
+    @classmethod
+    def date_function(cls):
+        """
+        Returns canonical date func
+        """
+        return "datenow()"
+
+    def valid_incremental_strategies(self):
+        return ["append", "delete+insert", "merge", "microbatch"]
+
+    @available
+    def external_root(self) -> str:
+        return self.config.credentials.external_root
+
+    @available
+    def external_write_options(self, write_location: str, rendered_options: Dict[str, Any]) -> str:
+        """Build the DuckDB COPY ... TO options clause for an external write.
+
+        Mirrors dbt-duckdb so that the same set of user-facing config knobs
+        (format, delimiter, partition_by, codec, header, per_thread_output, ...)
+        produce the same COPY options — except the COPY itself runs on the
+        Hardcharger server instead of the client.
+        """
+        if "format" not in rendered_options:
+            ext = os.path.splitext(write_location)[1].lower()
+            if ext:
+                rendered_options["format"] = ext[1:]
+            elif "delimiter" in rendered_options:
+                rendered_options["format"] = "csv"
+            else:
+                rendered_options["format"] = "parquet"
+
+        if rendered_options["format"] == "csv":
+            rendered_options.setdefault("header", 1)
+
+        if "partition_by" in rendered_options:
+            v = str(rendered_options["partition_by"])
+            if "," in v and not v.startswith("("):
+                rendered_options["partition_by"] = f"({v})"
+
+        quoted_keys = {"delimiter", "quote", "escape", "null"}
+        parts = []
+        for k, v in rendered_options.items():
+            v_str = str(v)
+            if k.lower() in quoted_keys and not v_str.startswith("'"):
+                parts.append(f"{k} '{v_str}'")
+            else:
+                parts.append(f"{k} {v_str}")
+        return ", ".join(parts)
+
+    @available
+    def external_read_location(self, write_location: str, rendered_options: Dict[str, Any]) -> str:
+        """Return the path to read back from after a COPY ... TO.
+
+        For partitioned or per-thread writes the COPY produces a directory tree
+        rather than a single file, so we glob across the partition columns.
+        """
+        if rendered_options.get("partition_by") or rendered_options.get("per_thread_output"):
+            globs = [write_location, "*"]
+            if rendered_options.get("partition_by"):
+                partition_by = str(rendered_options.get("partition_by"))
+                globs.extend(["*"] * len(partition_by.split(",")))
+            return ".".join(["/".join(globs), str(rendered_options.get("format", "parquet"))])
+        return write_location
+
+    @available.parse(lambda *a, **k: None)
+    def get_catalog_type(self, database: Optional[str]) -> Optional[str]:
+        """Return the DuckDB catalog type of `database` — e.g. 'duckdb' or
+        'ducklake' — from the server's `duckdb_databases()`, or None if it
+        can't be determined (e.g. a SQLite back-end). An empty `database`
+        means the connection's current catalog. Cached per database.
+        """
+        cache: Dict[str, Optional[str]] = self.__dict__.setdefault("_catalog_types", {})
+        key = (database or "").lower()
+        if key in cache:
+            return cache[key]
+
+        if database:
+            sql = "SELECT type FROM duckdb_databases() WHERE lower(database_name) = lower(?)"
+            parameters = [database]
+        else:
+            sql = "SELECT type FROM duckdb_databases() WHERE database_name = current_database()"
+            parameters = None
+        try:
+            connection = self.connections.get_thread_connection()
+            cursor = connection.handle.cursor()
+            try:
+                cursor.execute(operation=sql, parameters=parameters)
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
+            catalog_type = row[0].lower() if row else None
+        except Exception:
+            catalog_type = None
+        cache[key] = catalog_type
+        return catalog_type
+
+    @available
+    def location_exists(self, location: str) -> bool:
+        """Probe whether a file/path is readable by the Hardcharger server."""
+        try:
+            connection = self.connections.get_thread_connection()
+            cursor = connection.handle.cursor()
+            try:
+                cursor.execute(operation=f"SELECT 1 FROM '{location}' WHERE 1=0")
+            finally:
+                cursor.close()
+            return True
+        except Exception:
+            return False
+
+    @available
+    def store_relation(
+        self,
+        plugin_name: Optional[str],
+        relation: Any,
+        column_list: Sequence[BaseColumn],
+        path: str,
+        format: str,
+        config: Any,
+    ) -> None:
+        """Hook for dbt-duckdb-style plugins (e.g. Glue).
+
+        dbt-hardcharger has no plugin system — plugins in dbt-duckdb are a
+        client-side feature — so we surface a clear error if a user tries to
+        set `plugin` or `glue_register` on an external model.
+        """
+        if plugin_name:
+            raise DbtRuntimeError(
+                msg=f"The '{plugin_name}' plugin is not supported by dbt-hardcharger. "
+                "dbt-duckdb plugins (including 'glue') run client-side and have "
+                "no analogue in the server-side hardcharger adapter."
+            )
+
+    @available
+    def warn_once(self, msg: str) -> None:
+        """Emit a warning via the adapter logger (deduplication is best-effort)."""
+        from dbt.adapters.events.logging import AdapterLogger
+
+        if not hasattr(self, "_warned_messages"):
+            self._warned_messages: set[str] = set()
+        if msg in self._warned_messages:
+            return
+        self._warned_messages.add(msg)
+        AdapterLogger("Hardcharger").warning(msg=msg)
+
+    # DuckLake supports (and enforces) only NOT NULL; PRIMARY KEY, UNIQUE,
+    # CHECK and FOREIGN KEY fail at CREATE TABLE. `custom` constraints are
+    # user-written DDL and are passed through as-is.
+    DUCKLAKE_SUPPORTED_CONSTRAINTS = frozenset(
+        {ConstraintType.not_null.value, ConstraintType.custom.value}
+    )
+
+    @available
+    def ducklake_supported_constraints(
+        self,
+        raw_columns: Dict[str, Dict[str, Any]],
+        raw_constraints: List[Dict[str, Any]],
+        model_name: str,
+    ) -> Dict[str, Any]:
+        """Return copies of a model's column and model-level constraints
+        without those a DuckLake catalog can't create, warning once for each
+        one skipped (unless the constraint sets `warn_unsupported: false`) —
+        the same warn-and-skip treatment dbt gives any constraint an adapter
+        doesn't support.
+        """
+
+        def supported(constraint: Dict[str, Any], location: str) -> bool:
+            constraint_type = str(constraint.get("type"))
+            if constraint_type in self.DUCKLAKE_SUPPORTED_CONSTRAINTS:
+                return True
+            if constraint.get("warn_unsupported", True):
+                self.warn_once(
+                    msg=f"Model {model_name}: skipping the {constraint_type} constraint "
+                    f"on {location} — DuckLake catalogs only support NOT NULL constraints."
+                )
+            return False
+
+        columns = {
+            key: {
+                **column,
+                "constraints": [
+                    c
+                    for c in column.get("constraints") or []
+                    if supported(constraint=c, location=f"column {column['name']}")
+                ],
+            }
+            for key, column in raw_columns.items()
+        }
+        constraints = [
+            c
+            for c in raw_constraints
+            if supported(constraint=c, location=f"columns {', '.join(c.get('columns') or [])}")
+        ]
+        return {"columns": columns, "constraints": constraints}
+
+    @classmethod
+    def render_column_constraint(cls, constraint) -> Optional[str]:
+        """Override to strip database prefix from FK references.
+
+        DuckDB rejects FOREIGN KEY references with 3-part qualified names
+        (e.g. "db"."schema"."table") as cross-database, even when all
+        objects are in the same database. Strip the catalog prefix.
+        """
+        rendered = super().render_column_constraint(constraint)
+        if rendered and constraint.to and constraint.type.value == "foreign_key":
+            # Strip leading "catalog". from the reference
+            parts = constraint.to.split(".")
+            if len(parts) == 3:
+                schema_table = ".".join(parts[1:])
+                rendered = rendered.replace(constraint.to, schema_table)
+        return rendered
+
+    @classmethod
+    def render_model_constraint(cls, constraint) -> Optional[str]:
+        """Override to strip database prefix from FK references."""
+        rendered = super().render_model_constraint(constraint)
+        if (
+            rendered
+            and hasattr(constraint, "to")
+            and constraint.to
+            and constraint.type.value == "foreign_key"
+        ):
+            parts = constraint.to.split(".")
+            if len(parts) == 3:
+                schema_table = ".".join(parts[1:])
+                rendered = rendered.replace(constraint.to, schema_table)
+        return rendered
+
+    @available
+    def load_seed_from_csv(
+        self,
+        table_name: str,
+        csv_file_path: str,
+        db_schema: str,
+        column_types: Optional[Dict[str, str]] = None,
+        delimiter: Optional[str] = None,
+    ) -> int:
+        """Load a seed CSV using DuckDB (client-side) for type inference,
+        then bulk-ingest the Arrow data to Hardcharger via ADBC.
+
+        This avoids the standard dbt batch-INSERT path, which binds every value as
+        text: empty fields would arrive as the string 'null' and every column as VARCHAR.
+        """
+        # Read CSV with DuckDB for correct null handling and type inference
+        local_db = duckdb.connect(database=":memory:")
+        try:
+            opts = "auto_detect=true, all_varchar=false"
+            if delimiter:
+                escaped = delimiter.replace("'", "''")
+                opts += f", delim='{escaped}'"
+            arrow_table = local_db.execute(
+                query=f"SELECT * FROM read_csv('{csv_file_path}', {opts})"
+            ).to_arrow_table()
+        finally:
+            local_db.close()
+
+        # Apply column_types overrides from dbt config if specified
+        if column_types:
+            type_map = {
+                "text": pa.string(),
+                "varchar": pa.string(),
+                "string": pa.string(),
+                "integer": pa.int32(),
+                "int": pa.int32(),
+                "bigint": pa.int64(),
+                "float": pa.float64(),
+                "double": pa.float64(),
+                "numeric": pa.float64(),
+                "boolean": pa.bool_(),
+                "bool": pa.bool_(),
+                "date": pa.date32(),
+                "timestamp": pa.timestamp(unit="us"),
+            }
+            new_fields = []
+            for field in arrow_table.schema:
+                override = column_types.get(field.name)
+                if override and override.lower() in type_map:
+                    new_fields.append(pa.field(name=field.name, type=type_map[override.lower()]))
+                else:
+                    new_fields.append(field)
+            new_schema = pa.schema(fields=new_fields)
+            arrow_table = arrow_table.cast(target_schema=new_schema)
+
+        # Handle empty CSV (header only, no data rows): ADBC ingest can't
+        # create a table from zero rows, so create it from the schema
+        if arrow_table.num_rows == 0:
+            col_defs = duckdb_column_definitions(schema=arrow_table.schema)
+            connection = self.connections.get_thread_connection()
+            cursor = connection.handle.cursor()
+            try:
+                cursor.execute(operation=f'CREATE TABLE "{db_schema}"."{table_name}" ({col_defs})')
+            finally:
+                cursor.close()
+            return 0
+
+        # Bulk ingest via ADBC — creates the table with Arrow-inferred types
+        connection = self.connections.get_thread_connection()
+        cursor = connection.handle.cursor()
+        try:
+            rows = cursor.adbc_ingest(
+                table_name=table_name,
+                data=arrow_table,
+                mode="create",
+                db_schema_name=db_schema,
+            )
+        finally:
+            cursor.close()
+
+        return rows
+
+    def submit_python_job(self, parsed_model: dict, compiled_code: str) -> AdapterResponse:
+        """Execute a Python model client-side using local DuckDB.
+
+        Flow:
+        1. Fetch ref/source data from Hardcharger as Arrow tables
+        2. Register them in a local DuckDB instance
+        3. Run the Python model against local DuckDB
+        4. Ship the result back to Hardcharger via ADBC ingest
+        """
+        connection = self.connections.get_thread_connection()
+        adbc_conn = connection.handle
+
+        # Create a local DuckDB for model execution
+        local_db = duckdb.connect(database=":memory:")
+
+        # The load_df_function fetches data from Hardcharger and returns a
+        # DuckDB relation via local DuckDB for full API compatibility
+        # (supports .limit(), .filter(), .df(), etc.)
+        def load_df_function(table_name):
+            cursor = adbc_conn.cursor()
+            try:
+                cursor.execute(operation=f"SELECT * FROM {table_name}")
+                arrow_table = cursor.fetch_arrow_table()
+            finally:
+                cursor.close()
+            clean_name = table_name.replace('"', "")
+            local_db.register(view_name=clean_name, python_object=arrow_table)
+            return _DuckDBDataFrame(relation=local_db.query(query=f"SELECT * FROM '{clean_name}'"))
+
+        # Write compiled code to a temp file and load as module
+        mod_file = tempfile.NamedTemporaryFile(suffix=".py", delete=False)
+        try:
+            mod_file.write(compiled_code.lstrip().encode("utf-8"))
+            mod_file.close()
+
+            identifier = parsed_model["alias"]
+            spec = importlib.util.spec_from_file_location(name=identifier, location=mod_file.name)
+            if not spec or not spec.loader:
+                raise DbtRuntimeError(msg=f"Failed to load python model: {identifier}")
+            module = importlib.util.module_from_spec(spec=spec)
+            spec.loader.exec_module(module=module)
+
+            # Run the model. `session` is a proxy that delegates to the
+            # local DuckDB but also exposes `remote_sql()` for server-side
+            # pushdown — see `_HardchargerSession`.
+            dbt_obj = module.dbtObj(load_df_function=load_df_function)
+            session = _HardchargerSession(local_db=local_db, adbc_conn=adbc_conn)
+            # Positional: a model may name its parameters as it likes (`def model(dbt, fal)`).
+            df = module.model(dbt_obj, session)
+
+            # Materialize: convert result to Arrow (a table, or a record
+            # batch stream) and ship to Hardcharger
+            arrow_data = _to_arrow_data(df=df)
+
+            # Call materialize from compiled code (handles CREATE TABLE)
+            module.materialize(df=arrow_data, con=adbc_conn)
+
+        except DbtRuntimeError:
+            raise
+        except Exception as err:
+            raise DbtRuntimeError(
+                msg=with_ducklake_metadata_hint(
+                    message=f"Python model failed:\n{''.join(traceback.format_exception(err))}"
+                )
+            )
+        finally:
+            os.unlink(path=mod_file.name)
+            local_db.close()
+
+        return AdapterResponse(_message="OK")
+
+    @available.parse(lambda *a, **k: [])
+    def get_column_schema_from_query(self, sql: str) -> List[DuckDBColumn]:
+        """Get a list of the column names and data types from the given sql.
+
+        :param str sql: The sql to execute.
+        :return: List[DuckDBColumn]
+        """
+        # Taking advantage of yet another amazing DuckDB SQL feature right here: the
+        # ability to DESCRIBE a query instead of a relation
+        describe_sql = f"DESCRIBE ({sql})"
+        _, cursor = self.connections.add_select_query(sql=describe_sql)
+        flattened_columns = []
+        for row in cursor.fetchall():
+            name, dtype = row[0], row[1]
+            column = DuckDBColumn(column=name, dtype=dtype)
+            flattened_columns.extend(column.flatten())
+        cursor.close()
+        return flattened_columns
