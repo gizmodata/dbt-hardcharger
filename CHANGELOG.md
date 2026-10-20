@@ -6,8 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-The first version, 0.1.0: the Hardcharger™ port of
-[dbt-gizmosql](https://github.com/gizmodata/dbt-gizmosql) 1.12.7.
+## [2.0.0] - 2026-10-20
+
+<!-- Set the date above at tag time. -->
+
+The first release: the Hardcharger™ port of
+[dbt-gizmosql](https://github.com/gizmodata/dbt-gizmosql) 1.12.7. Its version follows the
+Hardcharger server's (2.0.0); the 0.1.0 builds before it were never published.
 
 ### Added
 

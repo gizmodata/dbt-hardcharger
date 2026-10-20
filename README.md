@@ -47,8 +47,13 @@ passes the same dbt adapter test suite ([Testing](#-testing)).
 
 ## 📦 Installation
 
-Python 3.11 or newer. dbt-hardcharger and its driver aren't on PyPI yet, so install both from
-their repositories (you need Go and a C compiler for the driver's library):
+Python 3.11 or newer. From PyPI, once 2.0.0 is published:
+
+```bash
+pip install dbt-hardcharger
+```
+
+From the repositories (you need Go and a C compiler for the driver's library):
 
 <!-- test: install -->
 ```bash
@@ -58,8 +63,6 @@ make -C hardcharger-adbc/go lib
 python3 -m venv .venv
 .venv/bin/pip install --editable hardcharger-adbc/python ./dbt-hardcharger
 ```
-
-Once they are published this becomes `pip install dbt-hardcharger`.
 
 ## ⚡ Quick start
 

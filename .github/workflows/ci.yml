@@ -10,7 +10,8 @@ name: ci
 #   - lowest-dependencies: the same suite on the lowest versions pyproject.toml allows.
 # A missing server, S3 gateway or secret FAILS a job; nothing is skipped.
 #
-# Access while Hardcharger is internal, with no personal token:
+# Access while the Hardcharger repositories and image are private, with no personal token (once they
+# are public, and the driver is on PyPI, none of this is needed):
 #   - ghcr.io/gizmodata/hardcharger:main (hardcharger-server), pulled with this workflow's
 #     GITHUB_TOKEN: the package grants this repository read access (package settings, Manage
 #     Actions access).
@@ -47,7 +48,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Deploy keys for the internal repositories
+      - name: Deploy keys for the private repositories
         env:
           DEPLOY_KEY_HARDCHARGER_ADBC: ${{ secrets.DEPLOY_KEY_HARDCHARGER_ADBC }}
           DEPLOY_KEY_WARP_SQL_ADBC: ${{ secrets.DEPLOY_KEY_WARP_SQL_ADBC }}
@@ -100,7 +101,7 @@ jobs:
           cat install-after-clones.sh
           bash -euxo pipefail install-after-clones.sh
           .venv/bin/dbt --version | tee dbt-version.txt
-          grep -q 'hardcharger: 0.1.0' dbt-version.txt
+          grep -q 'hardcharger: 2.0.0' dbt-version.txt
           .venv/bin/python -c "import adbc_driver_hardcharger.dbapi, dbt.adapters.hardcharger"
 
       - name: The driver's wheel, from the same build

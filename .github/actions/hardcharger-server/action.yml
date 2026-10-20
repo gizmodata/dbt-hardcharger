@@ -1,6 +1,6 @@
 name: hardcharger-server from its image
 description: >
-  Copies hardcharger-server (and its libraries) out of the private image
+  Copies hardcharger-server (and its libraries) out of the image
   ghcr.io/gizmodata/hardcharger, pulled with the workflow's GITHUB_TOKEN (packages: read; the
   package must grant this repository read access under "Manage Actions access"), and sets
   DBT_HARDCHARGER_TEST_SERVER_BINARY. Fails, never skips, when the image can't be pulled.

@@ -7,7 +7,7 @@ from dbt.adapters.hardcharger.connections import (
 from dbt.adapters.hardcharger.impl import HardchargerAdapter
 from dbt.include import hardcharger
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 
 Plugin = AdapterPlugin(
     adapter=HardchargerAdapter,  # type: ignore[arg-type]
