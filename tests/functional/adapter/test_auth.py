@@ -19,7 +19,7 @@ from dbt.adapters.hardcharger.connections import (
     HardchargerConnectionManager,
     HardchargerCredentials,
 )
-from tests.conftest import free_port, start_server, stop_server
+from tests.conftest import start_server, stop_server
 
 WHOAMI_SQL = """
 {{ config(materialized='table') }}
@@ -91,7 +91,9 @@ def test_an_untrusted_server_certificate_is_refused(hardcharger_server):
             password=hardcharger_server.password,
             database="dbt",
         )
-    assert "certificate signed by unknown authority" in str(error.value)
+    # Go's wording: Linux (CI), macOS.
+    reasons = ("certificate signed by unknown authority", "certificate is not trusted")
+    assert any(reason in str(error.value) for reason in reasons), str(error.value)
 
 
 def test_tls_skip_verify_connects_without_the_ca(hardcharger_server):
@@ -150,7 +152,7 @@ def test_tls_against_a_plain_http_server_is_refused(plain_server):
             password=plain_server.password,
             database="memory",
         )
-    assert "server gave HTTP response to HTTPS client" in str(error.value)
+    assert "speaks plain HTTP, not TLS. Add ?tls=false" in str(error.value)
 
 
 # --- an access token -----------------------------------------------------------------------------
@@ -260,11 +262,9 @@ def idp_issuer():
 
 @pytest.fixture(scope="module")
 def oauth_server(tmp_path_factory, server_home, idp_issuer):
-    oauth_port = free_port()
     server = start_server(
         workdir=tmp_path_factory.mktemp("oauth"),
         home=server_home,
-        oauth_port=oauth_port,
         extra_args=[
             "--token-allowed-issuer",
             idp_issuer,
@@ -278,8 +278,10 @@ def oauth_server(tmp_path_factory, server_home, idp_issuer):
             CLIENT_ID,
             "--oauth-client-secret",
             CLIENT_SECRET,
-            "--oauth-port",
-            str(oauth_port),
+            # Browser sign-in runs on the server's own port (Warp SQL §4.3); the redirect URI
+            # names 127.0.0.1, where the tests dial it.
+            "--oauth-base-url",
+            "{base_url}",
         ],
     )
     yield server
@@ -303,7 +305,6 @@ class TestBrowserSignIn(WhoAmI):
             schema="main",
             database="memory",
             auth_type="external",
-            oauth_port=oauth_server.oauth_port,
             oauth_browser=fake_browser(code="code-ok", sign_in_log=sign_in_log),
         )
 
@@ -322,7 +323,6 @@ def test_a_rejected_browser_sign_in_is_refused(oauth_server, tmp_path):
             tls=False,
             database="memory",
             auth_type="external",
-            oauth_port=oauth_server.oauth_port,
             oauth_browser=fake_browser(code="code-bad", sign_in_log=tmp_path / "log"),
         )
     assert "invalid_grant" in str(error.value)

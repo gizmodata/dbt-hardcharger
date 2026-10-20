@@ -48,7 +48,6 @@ class Server:
     workdir: Path
     log: Path
     certs: dict[str, Path] = dataclasses.field(default_factory=dict)
-    oauth_port: Optional[int] = None
 
     @property
     def tls(self) -> bool:
@@ -159,17 +158,18 @@ def start_server(
     certs: Optional[dict[str, Path]] = None,
     database: str = ":memory:",
     port: Optional[int] = None,
-    oauth_port: Optional[int] = None,
 ) -> Server:
     """Start hardcharger-server in ``workdir`` on a free port (or ``port``); with ``certs``
-    (from make_certificates) it serves TLS."""
+    (from make_certificates) it serves TLS. ``{base_url}`` in an extra argument becomes the
+    server's own base URL (at 127.0.0.1)."""
     binary = server_binary()
-    args = list(extra_args or [])
     certs = dict(certs or {})
+    port = port or free_port()
+    scheme = "https" if "cert" in certs else "http"
+    args = [arg.replace("{base_url}", f"{scheme}://127.0.0.1:{port}") for arg in extra_args or []]
     if "cert" in certs:
         args += ["--tls-cert", str(certs["cert"]), "--tls-key", str(certs["key"])]
     workdir.mkdir(parents=True, exist_ok=True)
-    port = port or free_port()
     password = secrets.token_urlsafe(nbytes=12) + ":p@ss:word"
     log = workdir / "hardcharger-server.log"
     with log.open(mode="ab") as out:
@@ -201,7 +201,6 @@ def start_server(
         workdir=workdir,
         log=log,
         certs=certs,
-        oauth_port=oauth_port,
     )
     _wait_up(server=server)
     return server

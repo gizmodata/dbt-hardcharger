@@ -24,7 +24,7 @@ The first version, 0.1.0: the Hardcharger™ port of
   utility macros.
 - Sign-in: `auth_type` `password`, `token` (a Hardcharger access token), `client_certificate`
   (mutual TLS: `tls_client_cert` and `tls_client_key`, no password) and `external` (the server's
-  browser sign-in, with `oauth_url`, `oauth_port` and `oauth_browser`). A browser sign-in happens
+  browser sign-in on the server's own port, with `oauth_browser`). A browser sign-in happens
   once per dbt process: every connection of the run shares it (dbt opens five for a one-model
   run, which would otherwise be five sign-ins).
 - TLS settings: `tls_root_certs`, `tls_skip_verify`, and the client certificate's
@@ -62,7 +62,12 @@ The first version, 0.1.0: the Hardcharger™ port of
   lowest-dependencies job; `release.yml` runs all of it on the tagged commit before building and
   creating a GitHub Release (no PyPI yet).
 - The driver is built from the hardcharger-adbc commit pinned in `.github/hardcharger-adbc.ref`
-  (`9a087be`); moving the pin is its own change, merged with a green CI run.
+  (`13f4eb4`: Warp SQL protocol 1.0.0, on warp-sql-adbc `a81c326`, tested against
+  `hardcharger-server` 2.0.0-rc.1); moving the pin is its own change, merged with a green CI run.
+  With it, browser sign-in runs on the server's own port (Warp SQL spec §4.3): the profile's
+  `oauth_url` and `oauth_port` are gone (an `oauth_browser` without `auth_type: external` is
+  still refused), and a plain-HTTP server reached with TLS is refused with the driver's own
+  message ("speaks plain HTTP, not TLS").
 - `scripts/test-in-docker.sh` runs the suite in a Linux container on a laptop, with the server
   from the `:main` image and the driver built at the pinned commit.
 

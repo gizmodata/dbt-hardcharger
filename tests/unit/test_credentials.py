@@ -58,12 +58,11 @@ def test_client_certificate_and_tls_files():
 
 
 def test_browser_sign_in():
-    kwargs = credentials(
-        auth_type="external", oauth_port=4443, oauth_browser="none"
-    ).connect_kwargs(autocommit=True)
+    kwargs = credentials(auth_type="external", oauth_browser="none").connect_kwargs(autocommit=True)
     assert kwargs["auth_type"] == "external"
-    assert kwargs["oauth_port"] == 4443
     assert kwargs["open_browser"] is False
+    # Browser sign-in is on the server's own port: no sign-in server URL or port to pass.
+    assert not {"oauth_url", "oauth_port"} & kwargs.keys()
     kwargs = credentials(auth_type="external", oauth_browser="firefox").connect_kwargs(
         autocommit=True
     )
@@ -87,7 +86,7 @@ def test_browser_sign_in():
         ),
         ({"username": "joe", "tls_client_key": "me-key.pem"}, "go together"),
         ({"username": "joe", "tls": False, "tls_root_certs": "ca.pem"}, "tls: false is plain HTTP"),
-        ({"username": "joe", "oauth_port": 4443}, "are for auth_type 'external'"),
+        ({"username": "joe", "oauth_browser": "none"}, "is for auth_type 'external'"),
         ({"auth_type": "external", "username": "joe"}, "remove user and password"),
     ],
 )

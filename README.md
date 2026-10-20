@@ -192,8 +192,7 @@ dbt show --select big_spenders
 | `tls_root_certs` | the system's | CA certificates to trust: a file path or PEM text. |
 | `tls_skip_verify` | `false` | Don't verify the server's certificate (development only). |
 | `tls_client_cert`, `tls_client_key` | | A client certificate and its key (path or PEM), for mutual TLS: with `auth_type: client_certificate` they are the credential; with a password they only admit the connection. |
-| `oauth_url`, `oauth_port` | `https://HOST:31339` | The server's browser sign-in endpoint (`--oauth-base-url`, `--oauth-port`), for `auth_type: external`. |
-| `oauth_browser` | the system browser | The command that opens the sign-in page (the URL is appended), or `none` to print the URL. |
+| `oauth_browser` | the system browser | For `auth_type: external`: the command that opens the sign-in page (the URL is appended), or `none` to print the URL. |
 | `external_root` | `.` | Where `external` models write when they don't name a `location` ([below](#-external-files-written-by-the-server)). Resolved on the server. |
 | `threads` | `1` | dbt's parallelism. |
 
@@ -246,8 +245,8 @@ shop:
 ```
 
 **Browser sign-in** through the server's identity provider (a server started with
-`--oauth-client-id`): dbt opens the sign-in page once per run, and every connection of the run
-shares that sign-in.
+`--oauth-client-id`), on the server's own port: dbt opens the sign-in page once per run, and
+every connection of the run shares that sign-in.
 
 <!-- test: profile external -->
 ```yaml
@@ -436,7 +435,7 @@ The same features and macros; the profile changes:
 | `use_encryption` (`use_tls`), on by default | `tls`, on by default |
 | `tls_skip_verify` (`disable_certificate_verification`) | `tls_skip_verify` |
 | (none) | `tls_root_certs`, `tls_client_cert`, `tls_client_key` |
-| `auth_type: external` | `auth_type: external` (and `oauth_url`, `oauth_port`, `oauth_browser`) |
+| `auth_type: external` | `auth_type: external` (and `oauth_browser`), on the server's own port |
 | (none) | `auth_type: token` with `token`, `auth_type: client_certificate` |
 | `adbc_driver_gizmosql` in Python models | `adbc_driver_hardcharger` |
 

@@ -113,11 +113,8 @@ class HardchargerCredentials(Credentials):
     tls_client_cert: Optional[str] = field(default=None, kw_only=True)
     tls_client_key: Optional[str] = field(default=None, kw_only=True)
 
-    # Browser sign-in (auth_type: external): the sign-in server's base URL or port (the
-    # server's --oauth-base-url / --oauth-port), and the command that opens the sign-in
-    # page ("none" prints the URL instead of opening a browser).
-    oauth_url: Optional[str] = field(default=None, kw_only=True)
-    oauth_port: Optional[int] = field(default=None, kw_only=True)
+    # Browser sign-in (auth_type: external) runs on the server's own port: the command that
+    # opens the sign-in page ("none" prints the URL instead of opening a browser).
     oauth_browser: Optional[str] = field(default=None, kw_only=True)
 
     # Root path (server-side) for external materializations that do not specify
@@ -179,10 +176,8 @@ class HardchargerCredentials(Credentials):
             raise DbtConfigError(
                 msg="tls: false is plain HTTP: remove the tls_* settings, or turn TLS on"
             )
-        if auth_type != "external" and (self.oauth_url or self.oauth_port or self.oauth_browser):
-            raise DbtConfigError(
-                msg="oauth_url, oauth_port and oauth_browser are for auth_type 'external'"
-            )
+        if auth_type != "external" and self.oauth_browser:
+            raise DbtConfigError(msg="oauth_browser is for auth_type 'external'")
 
     @property
     def uri(self) -> str:
@@ -207,12 +202,10 @@ class HardchargerCredentials(Credentials):
             kwargs["access_token"] = self.token
         if self.tls_skip_verify:
             kwargs["tls_skip_verify"] = True
-        for key in ("tls_root_certs", "tls_client_cert", "tls_client_key", "oauth_url"):
+        for key in ("tls_root_certs", "tls_client_cert", "tls_client_key"):
             value = getattr(self, key)
             if value:
                 kwargs[key] = value
-        if self.oauth_port:
-            kwargs["oauth_port"] = self.oauth_port
         if self.oauth_browser:
             kwargs["open_browser"] = False if self.oauth_browser == "none" else self.oauth_browser
         return kwargs
