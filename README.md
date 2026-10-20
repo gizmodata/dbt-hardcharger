@@ -57,8 +57,8 @@ From the repositories (you need Go and a C compiler for the driver's library):
 
 <!-- test: install -->
 ```bash
-git clone git@github.com:gizmodata/hardcharger-adbc.git
-git clone git@github.com:gizmodata/dbt-hardcharger.git
+git clone https://github.com/gizmodata/hardcharger-adbc.git
+git clone https://github.com/gizmodata/dbt-hardcharger.git
 make -C hardcharger-adbc/go lib
 python3 -m venv .venv
 .venv/bin/pip install --editable hardcharger-adbc/python ./dbt-hardcharger
