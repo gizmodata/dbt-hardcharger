@@ -65,7 +65,13 @@ Hardcharger server's (2.0.0); the 0.1.0 builds before it were never published.
   skip, without a server or S3 gateway.
 - CI: the README install, ruff (lint and format), mypy, Python 3.11 to 3.14, and a
   lowest-dependencies job; `release.yml` runs all of it on the tagged commit before building and
-  creating a GitHub Release (no PyPI yet).
+  publishing to PyPI through trusted publishing (the `pypi` environment, after an approval on
+  the `release` environment) and creating a GitHub Release. The build refuses to go on while
+  the `adbc-driver-hardcharger` floor in `pyproject.toml` is not on PyPI, and checks that the
+  wheel depends on the driver by that plain floor, never by CI's git pin.
+- The repository's public files: NOTICE (naming dbt-gizmosql as the origin), CONTRIBUTING.md with
+  the Developer Certificate of Origin sign-off, SECURITY.md, CODE_OF_CONDUCT.md, the LICENSE
+  copyright line, and https clone URLs in the README.
 - The driver is built from the hardcharger-adbc commit pinned in `.github/hardcharger-adbc.ref`
   (`13f4eb4`: Warp SQL protocol 1.0.0, on warp-sql-adbc `a81c326`, tested against
   `hardcharger-server` 2.0.0-rc.1); moving the pin is its own change, merged with a green CI run.

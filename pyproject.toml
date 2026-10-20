@@ -24,8 +24,9 @@ classifiers = [
 ]
 keywords = ["dbt", "hardcharger", "warp-sql", "duckdb", "adbc", "gizmodata"]
 # Floors are the latest releases (2026-10-19); CI's lowest-dependencies job installs exactly
-# these. adbc-driver-hardcharger isn't on PyPI yet: CI builds it from a pinned commit of
-# gizmodata/hardcharger-adbc (.github/hardcharger-adbc.ref).
+# these. CI builds adbc-driver-hardcharger from a pinned commit of gizmodata/hardcharger-adbc
+# (.github/hardcharger-adbc.ref) until its PyPI release; the floor below is what the wheel
+# depends on, and release.yml refuses to publish while PyPI has no such version.
 dependencies = [
     # dbt's own packages within their minor version, as dbt adapters do: a new dbt minor
     # release gets its own dbt-hardcharger release.
