@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [2.0.0] - 2026-10-20
 
+### Changed
+- Require the released Hardcharger ADBC 2.0.0 driver and test the final driver implementation.
+
 <!-- Set the date above at tag time. -->
 
 The first release: the Hardcharger™ port of
