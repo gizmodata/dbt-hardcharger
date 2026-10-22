@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - CI's README installation check reads the package version instead of expecting 2.0.0.
+- Handle a missing Arrow result explicitly when reading seed CSVs, matching DuckDB 2.0's
+  optional return type and keeping the type checks valid with the latest dependency.
 
 ## [2.0.0] - 2026-10-21
 

@@ -538,6 +538,9 @@ class HardchargerAdapter(adapter_cls):
         finally:
             local_db.close()
 
+        if arrow_table is None:
+            raise DbtRuntimeError("DuckDB returned no Arrow table while reading the seed CSV.")
+
         # Apply column_types overrides from dbt config if specified
         if column_types:
             type_map = {
