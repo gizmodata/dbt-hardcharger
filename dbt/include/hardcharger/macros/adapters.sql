@@ -272,6 +272,12 @@ def materialize(df, con):
   {% endif %}
 {% endmacro %}
 
+{% macro hardcharger__get_incremental_append_sql(arg_dict) -%}
+  {%- set dest_cols_csv = get_quoted_csv(arg_dict['dest_columns'] | map(attribute='name')) -%}
+  insert into {{ arg_dict['target_relation'] }} by name
+  (select {{ dest_cols_csv }} from {{ arg_dict['temp_relation'] }})
+{%- endmacro %}
+
 {% macro location_exists(location) -%}
   {% do return(adapter.location_exists(location)) %}
 {% endmacro %}
@@ -447,11 +453,8 @@ def materialize(df, con):
     {%- set predicates = [] if incremental_predicates is none else [] + incremental_predicates -%}
     {%- set merge_update_columns = config.get('merge_update_columns') -%}
     {%- set merge_exclude_columns = config.get('merge_exclude_columns') -%}
-    {%- set on_schema_change = config.get('on_schema_change', 'ignore') -%}
     {%- set sql_header = config.get('sql_header', none) -%}
     {%- set dest_cols_csv = get_quoted_csv(dest_columns | map(attribute="name")) -%}
-    {#-- Use explicit columns when schema may differ or specific columns are configured --#}
-    {%- set use_explicit_columns = merge_update_columns or merge_exclude_columns or on_schema_change in ['ignore', 'append_new_columns', 'sync_all_columns', 'fail'] -%}
 
     {% if unique_key %}
         {% if unique_key is sequence and unique_key is not mapping and unique_key is not string %}
@@ -467,8 +470,9 @@ def materialize(df, con):
 
     {{ sql_header if sql_header is not none }}
 
+    {#-- Project writable columns so BY NAME respects on_schema_change. --#}
     merge into {{ target }} as DBT_INTERNAL_DEST
-        using {{ source }} as DBT_INTERNAL_SOURCE
+        using (select {{ dest_cols_csv }} from {{ source }}) as DBT_INTERNAL_SOURCE
         on {{"(" ~ predicates | join(") and (") ~ ")"}}
 
     {% if unique_key %}
@@ -480,29 +484,13 @@ def materialize(df, con):
                 {{ column_name }} = DBT_INTERNAL_SOURCE.{{ column_name }}
                 {%- if not loop.last %}, {%- endif %}
             {%- endfor %}
-        {%- elif use_explicit_columns %}
-        update set
-            {% for column in dest_columns -%}
-                {{ adapter.quote(column.name) }} = DBT_INTERNAL_SOURCE.{{ adapter.quote(column.name) }}
-                {%- if not loop.last %}, {%- endif %}
-            {%- endfor %}
         {%- else %}
         update by name
         {%- endif %}
     {% endif %}
 
     when not matched then
-        {%- if use_explicit_columns %}
-        insert ({{ dest_cols_csv }})
-        values (
-            {% for column in dest_columns -%}
-                DBT_INTERNAL_SOURCE.{{ adapter.quote(column.name) }}
-                {%- if not loop.last %}, {%- endif %}
-            {%- endfor %}
-        )
-        {%- else %}
         insert by name
-        {%- endif %}
 
 {% endmacro %}
 

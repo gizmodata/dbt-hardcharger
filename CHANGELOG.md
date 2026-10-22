@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-22
+
+### Fixed
+
+- Python incremental models honor `merge`, `delete+insert`, `append` and custom strategy
+  macros instead of always appending. Apply unique keys, column update/exclusion configs,
+  predicates and schema-change policies through the SQL strategy macros.
+- Match incremental columns by name with DuckDB's INSERT / MERGE BY NAME clauses.
+  Python extracts can omit historical target columns without a column-count error under
+  the default `on_schema_change=ignore`; preserve historical rows and `full_refresh=False`.
+
+### Added
+
+- SQL and Python strategy regression tests, including MERGE updates, composite keys,
+  reordered columns, schema policies and a 22-column target receiving a 19-column extract.
+- Retain the original GizmoSQL Flight SQL error fixture alongside the Hardcharger variants,
+  covering every test case collected by dbt-gizmosql 1.12.7.
+
 ### Changed
 
 - Tagged releases publish automatically after the full unit/integration CI and distribution

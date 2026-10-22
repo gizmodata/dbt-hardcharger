@@ -69,7 +69,11 @@
   -- Python incremental
   {%- set existing_relation = load_cached_relation(this) -%}
   {%- set target_relation = this.incorporate(type='table') %}
-  {%- set full_refresh_mode = (should_full_refresh()) -%}
+  {%- set full_refresh_mode = (should_full_refresh() or (existing_relation is not none and existing_relation.is_view)) -%}
+  {%- set unique_key = config.get('unique_key') -%}
+  {%- set on_schema_change = incremental_validate_on_schema_change(config.get('on_schema_change'), default='ignore') -%}
+  {%- set incremental_strategy = config.get('incremental_strategy') or 'default' -%}
+  {%- set strategy_sql_macro_func = adapter.get_incremental_strategy_macro(context, incremental_strategy) -%}
 
   {#-- Ensure connection is open for commit --#}
   {%- call statement('setup_connection') -%}
@@ -89,9 +93,33 @@
       {{ py_write_table(temporary=True, relation=tmp_relation, compiled_code=compiled_code) }}
     {%- endcall %}
 
-    {#-- Append temp into target (incremental models handle filtering in Python) --#}
-    {%- call statement('incremental_insert') -%}
-      INSERT INTO {{ target_relation }} SELECT * FROM {{ tmp_relation }}
+    {#-- Use the same schema handling and strategy dispatch as SQL models. --#}
+    {%- set contract_config = config.get('contract') -%}
+    {% if not contract_config or not contract_config.enforced %}
+      {% do adapter.expand_target_column_types(from_relation=tmp_relation, to_relation=target_relation) %}
+    {% endif %}
+    {%- set dest_columns = process_schema_changes(on_schema_change, tmp_relation, existing_relation) -%}
+    {% if not dest_columns %}
+      {#-- With ignore, retain historical target columns absent from this extract.
+           Write the shared columns by name instead of requiring identical shapes. --#}
+      {%- set source_column_names = adapter.get_columns_in_relation(tmp_relation) | map(attribute='name') | map('lower') | list -%}
+      {%- set dest_columns = [] -%}
+      {% for column in adapter.get_columns_in_relation(existing_relation) %}
+        {% if column.name | lower in source_column_names %}
+          {% do dest_columns.append(column) %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {%- set incremental_predicates = config.get('predicates', none) or config.get('incremental_predicates', none) -%}
+    {%- set strategy_arg_dict = {
+      'target_relation': target_relation,
+      'temp_relation': tmp_relation,
+      'unique_key': unique_key,
+      'dest_columns': dest_columns,
+      'incremental_predicates': incremental_predicates
+    } -%}
+    {%- call statement('incremental_apply') -%}
+      {{ strategy_sql_macro_func(strategy_arg_dict) }}
     {%- endcall -%}
     {%- call statement('cleanup_temp') -%}
       DROP TABLE IF EXISTS {{ tmp_relation }}

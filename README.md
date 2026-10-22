@@ -353,6 +353,20 @@ def model(dbt, session):
 It returns a local DuckDB relation (chain `.filter()`, `.project()`, `.df()`, ...). The rest
 of `session` is the local DuckDB connection (`session.sql()`, `session.register()`, ...).
 
+**Incremental Python models.** Python results are staged through ADBC, then applied with
+the same strategy macros as SQL models. Set `incremental_strategy="merge"` and a
+`unique_key` to update matching rows and insert new rows. With no explicit strategy, a
+`unique_key` selects MERGE; without a key, the default is append. `delete+insert` deletes
+all target rows matching the incoming keys before inserting the new rows.
+
+Writes use DuckDB's `BY NAME` clauses, so column order can differ. Python models honor
+`merge_update_columns`, `merge_exclude_columns`, incremental predicates and
+`on_schema_change`. With the default `on_schema_change="ignore"`, only shared columns are
+written: historical target columns remain, omitted columns keep their values on MERGE
+updates, and inserted rows use the target's defaults (or NULL) for omitted columns. Use
+`append_new_columns` or `sync_all_columns` to apply schema changes, or `fail` to reject them.
+`full_refresh=False` still prevents `--full-refresh` from rebuilding a historical model.
+
 ## 🌱 Seeds
 
 Seeds are read by DuckDB's CSV reader on the dbt machine and bulk-ingested: empty fields become
@@ -443,6 +457,9 @@ The same features and macros; the profile changes:
 | (none) | `auth_type: token` with `token`, `auth_type: client_certificate` |
 | `adbc_driver_gizmosql` in Python models | `adbc_driver_hardcharger` |
 
+Compared with the dbt-gizmosql 1.12.7 source, Hardcharger also fixes Python incremental
+models that unconditionally appended results: Python now honors its configured strategy.
+
 ## 🧪 Testing
 
 The suite is dbt's adapter test suite ([dbt-tests-adapter](https://github.com/dbt-labs/dbt-adapters/tree/main/dbt-tests-adapter)),
@@ -469,8 +486,8 @@ Lint, format and type checks: `ruff check .`, `ruff format --check .` and `mypy`
 
 [Semantic versioning](https://semver.org) and [CHANGELOG.md](https://github.com/gizmodata/dbt-hardcharger/blob/main/CHANGELOG.md). A `vX.Y.Z` tag runs
 the whole CI on the tagged commit (`release.yml` calls `ci.yml`), then builds the wheel and
-sdist and creates a GitHub Release with the tag's CHANGELOG section. PyPI publishing comes when
-dbt-hardcharger and adbc-driver-hardcharger go public.
+sdist, publishes to PyPI and creates a GitHub Release with the tag's CHANGELOG section and
+the distribution files attached.
 
 ## 📄 License
 

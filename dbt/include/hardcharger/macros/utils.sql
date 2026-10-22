@@ -82,7 +82,7 @@
         {% endif %}
     {% endif %}
 
-    insert into {{ target }} ({{ dest_cols_csv }})
+    insert into {{ target }} by name
     (
         select {{ dest_cols_csv }}
         from {{ source }}

@@ -17,6 +17,11 @@ ROLLBACK_FAILURE_JSON = (
     '{"exception_type":"TransactionContext","exception_message":"Failed to commit: '
     'Failed to execute query \\"ROLLBACK\\": "}'
 )
+ROLLBACK_FAILURE_FLIGHTSQL = (
+    "INVALID_ARGUMENT: [FlightSQL] DuckDB ingest failed: "
+    '{"exception_type":"TransactionContext","exception_message":"Failed to commit: '
+    'Failed to execute query \\"ROLLBACK\\": "} (InvalidArgument; ExecuteIngest)'
+)
 ROLLBACK_FAILURE = (
     "INVALID_ARGUMENT: [warpsql] bulk ingest into t: TransactionContext Error: "
     'Failed to commit: Failed to execute query "ROLLBACK": (sql_error, HTTP 400)'
@@ -29,7 +34,8 @@ COMMIT_FAILURE = (
 
 
 @pytest.mark.parametrize(
-    argnames="message", argvalues=[ROLLBACK_FAILURE_JSON, ROLLBACK_FAILURE, COMMIT_FAILURE]
+    argnames="message",
+    argvalues=[ROLLBACK_FAILURE_JSON, ROLLBACK_FAILURE_FLIGHTSQL, ROLLBACK_FAILURE, COMMIT_FAILURE],
 )
 def test_metadata_commit_failures_get_hint(message):
     result = with_ducklake_metadata_hint(message=message)
