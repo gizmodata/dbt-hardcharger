@@ -1,20 +1,21 @@
 <p align="center">
   <a href="https://github.com/gizmodata/hardcharger">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hardcharger-banner-dark.png">
-      <img src="docs/assets/hardcharger-banner-light.png" alt="Hardcharger™" width="400">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/gizmodata/dbt-hardcharger/main/docs/assets/hardcharger-banner-dark.png">
+      <img src="https://raw.githubusercontent.com/gizmodata/dbt-hardcharger/main/docs/assets/hardcharger-banner-light.png" alt="Hardcharger™" width="400">
     </picture>
   </a>
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/dbt-hardcharger/"><img src="https://img.shields.io/pepy/dt/dbt-hardcharger.svg" alt="PyPI Downloads"></a>
   <a href="https://pypi.org/project/dbt-hardcharger/"><img src="https://img.shields.io/badge/PyPI-dbt--hardcharger-blue.svg?logo=PyPI" alt="PyPI"></a>
   <a href="https://www.getdbt.com"><img src="https://img.shields.io/badge/dbt--core-1.12-FF694B.svg?logo=dbt&logoColor=white" alt="dbt-core 1.12"></a>
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11 to 3.14">
   <a href="https://github.com/gizmodata/hardcharger-adbc"><img src="https://img.shields.io/badge/driver-hardcharger--adbc-f15a24.svg" alt="Hardcharger ADBC driver"></a>
   <a href="https://github.com/gizmodata/warp-sql"><img src="https://img.shields.io/badge/protocol-Warp%20SQL-31a8db.svg" alt="Warp SQL protocol"></a>
   <a href="https://github.com/gizmodata/hardcharger"><img src="https://img.shields.io/badge/server-Hardcharger-f15a24.svg" alt="Hardcharger"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg" alt="Apache 2.0 license"></a>
+  <a href="https://github.com/gizmodata/dbt-hardcharger/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg" alt="Apache 2.0 license"></a>
   <a href="https://gizmodata.com"><img src="https://img.shields.io/badge/by-GizmoData%E2%84%A2-f15a24.svg" alt="GizmoData™"></a>
 </p>
 
@@ -47,7 +48,7 @@ passes the same dbt adapter test suite ([Testing](#-testing)).
 
 ## 📦 Installation
 
-Python 3.11 or newer. From PyPI, once 2.0.0 is published:
+Python 3.11 or newer. From PyPI:
 
 ```bash
 pip install dbt-hardcharger
@@ -390,7 +391,7 @@ select *, strftime(ordered_at, '%Y-%m') as month from {{ ref('orders') }}
 
 | Option | Default | Description |
 | :---: | :---: | --- |
-| `location` | [`external_location`](dbt/include/hardcharger/macros/utils/external_location.sql) | The server-side path or URI to write. |
+| `location` | [`external_location`](https://github.com/gizmodata/dbt-hardcharger/blob/main/dbt/include/hardcharger/macros/utils/external_location.sql) | The server-side path or URI to write. |
 | `format` | `parquet` | `parquet`, `csv` or `json`; inferred from the `location`'s extension when not given. |
 | `delimiter` | `,` | The CSV field delimiter. |
 | `options` | `{}` | Other options for DuckDB's `COPY`: `compression`, `partition_by`, `codec`, `per_thread_output`, ... |
@@ -466,19 +467,19 @@ Lint, format and type checks: `ruff check .`, `ruff format --check .` and `mypy`
 
 ## 📦 Releasing
 
-[Semantic versioning](https://semver.org) and [CHANGELOG.md](CHANGELOG.md). A `vX.Y.Z` tag runs
+[Semantic versioning](https://semver.org) and [CHANGELOG.md](https://github.com/gizmodata/dbt-hardcharger/blob/main/CHANGELOG.md). A `vX.Y.Z` tag runs
 the whole CI on the tagged commit (`release.yml` calls `ci.yml`), then builds the wheel and
 sdist and creates a GitHub Release with the tag's CHANGELOG section. PyPI publishing comes when
 dbt-hardcharger and adbc-driver-hardcharger go public.
 
 ## 📄 License
 
-Apache License 2.0; see [LICENSE](LICENSE).
+Apache License 2.0; see [LICENSE](https://github.com/gizmodata/dbt-hardcharger/blob/main/LICENSE).
 
 ---
 
 <p align="center">
-  <a href="https://gizmodata.com"><img src="docs/assets/gizmodata-logo.png" alt="GizmoData™" width="56"></a><br>
+  <a href="https://gizmodata.com"><img src="https://raw.githubusercontent.com/gizmodata/dbt-hardcharger/main/docs/assets/gizmodata-logo.png" alt="GizmoData™" width="56"></a><br>
   <sub>Built by <a href="https://gizmodata.com">GizmoData™</a></sub>
 </p>
 

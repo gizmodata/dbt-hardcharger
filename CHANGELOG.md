@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-22
+
+### Documentation
+
+- Add a total PyPI downloads badge to the README and PyPI description.
+- Fix the banner and footer logos on PyPI with absolute image URLs, and make repository file links absolute.
+
 ## [2.0.0] - 2026-10-21
 
 ### Changed
