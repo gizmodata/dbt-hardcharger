@@ -101,7 +101,9 @@ jobs:
           cat install-after-clones.sh
           bash -euxo pipefail install-after-clones.sh
           .venv/bin/dbt --version | tee dbt-version.txt
-          grep -q 'hardcharger: 2.0.0' dbt-version.txt
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/pyproject.toml")
+          [ -n "$version" ]
+          grep -Fq "hardcharger: $version" dbt-version.txt
           .venv/bin/python -c "import adbc_driver_hardcharger.dbapi, dbt.adapters.hardcharger"
 
       - name: The driver's wheel, from the same build

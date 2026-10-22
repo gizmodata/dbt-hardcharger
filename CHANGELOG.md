@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
 - Add a total PyPI downloads badge to the README and PyPI description.
 - Fix the banner and footer logos on PyPI with absolute image URLs, and make repository file links absolute.
 
+### Fixed
+
+- CI's README installation check reads the package version instead of expecting 2.0.0.
+
 ## [2.0.0] - 2026-10-21
 
 ### Changed
