@@ -2,8 +2,8 @@ name: release
 
 # On a vX.Y.Z tag: every CI job on the tagged commit (ci.yml: the README install, lint and
 # type checks, the full test suite on Python 3.11 to 3.14 and on the lowest dependencies),
-# then the wheel and sdist, Philip's approval (the `release` environment), PyPI through trusted
-# publishing (the `pypi` environment: no token, the workflow's OIDC identity), and a GitHub
+# then the wheel and sdist, PyPI through trusted publishing (the `pypi` environment:
+# no token, the workflow's OIDC identity), and a GitHub
 # Release with the tag's CHANGELOG.md section as its notes and the artifacts attached.
 #
 # The package depends on adbc-driver-hardcharger at the floor pyproject.toml names. The build
@@ -101,17 +101,8 @@ jobs:
           name: dist
           path: dist/
 
-  # Philip's go: the `release` environment requires his approval before anything is published.
-  approve:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    environment: release
-    steps:
-      - run: echo "release ${{ needs.build.outputs.version }} approved"
-
   pypi:
-    needs: [build, approve]
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     environment:

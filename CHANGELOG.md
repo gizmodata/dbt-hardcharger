@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Tagged releases publish automatically after the full unit/integration CI and distribution
+  checks pass. Remove the separate human approval job and its environment reviewer requirement;
+  retain PyPI trusted publishing and the tag restrictions.
+
 ## [2.0.1] - 2026-10-22
 
 ### Documentation
