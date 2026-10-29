@@ -9,7 +9,7 @@ name: release
 # The package depends on adbc-driver-hardcharger at the floor pyproject.toml names. The build
 # refuses to go on while PyPI has no such version, so a release can never publish a package
 # nobody can install. CI builds the driver from a pinned commit of gizmodata/hardcharger-adbc
-# (.github/hardcharger-adbc.ref, a deploy key): that is CI plumbing only, and the build checks
+# (.github/hardcharger-adbc.ref): that is CI plumbing only, and the build checks
 # that the wheel's metadata carries the plain floor, never a git pin.
 #
 # workflow_dispatch runs the tests and the build only: publishing needs a tag.
@@ -34,7 +34,7 @@ jobs:
     permissions:
       contents: read
       packages: read  # the server image the suites run against
-    secrets: inherit  # ci.yml's deploy keys
+    secrets: inherit  # any secret ci.yml comes to use
 
   build:
     needs: tests

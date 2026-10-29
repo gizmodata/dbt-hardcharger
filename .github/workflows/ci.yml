@@ -10,14 +10,11 @@ name: ci
 #   - lowest-dependencies: the same suite on the lowest versions pyproject.toml allows.
 # A missing server, S3 gateway or secret FAILS a job; nothing is skipped.
 #
-# Access while the Hardcharger repositories and image are private, with no personal token (once they
-# are public, and the driver is on PyPI, none of this is needed):
-#   - ghcr.io/gizmodata/hardcharger:main (hardcharger-server), pulled with this workflow's
-#     GITHUB_TOKEN: the package grants this repository read access (package settings, Manage
-#     Actions access).
-#   - gizmodata/hardcharger-adbc (the driver, at the commit in .github/hardcharger-adbc.ref) and
-#     gizmodata/warp-sql-adbc (its Go dependency), each through a read-only deploy key of that
-#     repository kept here as a secret: DEPLOY_KEY_HARDCHARGER_ADBC, DEPLOY_KEY_WARP_SQL_ADBC.
+# hardcharger-server comes from the image ghcr.io/gizmodata/hardcharger:main, pulled with this
+# workflow's GITHUB_TOKEN (no personal token): the package grants this repository read access
+# (package settings, Manage Actions access). The driver's repository,
+# gizmodata/hardcharger-adbc (at the commit in .github/hardcharger-adbc.ref), and its Go
+# module dependencies are public, so they are cloned and fetched anonymously over HTTPS.
 
 on:
   push:
@@ -48,37 +45,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Deploy keys for the private repositories
-        env:
-          DEPLOY_KEY_HARDCHARGER_ADBC: ${{ secrets.DEPLOY_KEY_HARDCHARGER_ADBC }}
-          DEPLOY_KEY_WARP_SQL_ADBC: ${{ secrets.DEPLOY_KEY_WARP_SQL_ADBC }}
-        run: |
-          # One SSH host alias per repository, each with its own key, and git rewrites every
-          # spelling of that repository's URL to its alias; Go's module fetches go through the
-          # same rewrites.
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
-          for repo in hardcharger-adbc warp-sql-adbc; do
-            var="DEPLOY_KEY_$(echo "$repo" | tr 'a-z-' 'A-Z_')"
-            key="${!var}"
-            if [ -z "$key" ]; then
-              echo "::error::the $var secret is not set: the private key of a read-only deploy key of gizmodata/$repo"
-              exit 1
-            fi
-            printf '%s\n' "$key" > ~/.ssh/"$repo" && chmod 600 ~/.ssh/"$repo"
-            printf 'Host github.com-%s\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/%s\n  IdentitiesOnly yes\n' "$repo" "$repo" >> ~/.ssh/config
-            for from in "https://github.com/gizmodata/$repo" "ssh://git@github.com/gizmodata/$repo" "git@github.com:gizmodata/$repo"; do
-              git config --global --add url."git@github.com-$repo:gizmodata/$repo".insteadOf "$from"
-            done
-          done
-          echo "GOPRIVATE=github.com/gizmodata/*" >> "$GITHUB_ENV"
-
       - name: The repositories, as the README's clones leave them
         run: |
           ref=$(tr -d '[:space:]' < .github/hardcharger-adbc.ref)
           [ -n "$ref" ] || { echo "::error::.github/hardcharger-adbc.ref is empty"; exit 1; }
           mkdir -p "$RUNNER_TEMP/readme"
-          git clone --quiet git@github.com:gizmodata/hardcharger-adbc.git "$RUNNER_TEMP/readme/hardcharger-adbc"
+          git clone --quiet https://github.com/gizmodata/hardcharger-adbc.git "$RUNNER_TEMP/readme/hardcharger-adbc"
           git -C "$RUNNER_TEMP/readme/hardcharger-adbc" checkout --quiet "$ref"
           git -C "$RUNNER_TEMP/readme/hardcharger-adbc" log -1 --format='hardcharger-adbc at %h %s'
           ln -s "$GITHUB_WORKSPACE" "$RUNNER_TEMP/readme/dbt-hardcharger"
