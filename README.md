@@ -206,7 +206,7 @@ the quick start's server):
 
 <!-- test: shell token -->
 ```bash
-export HARDCHARGER_TOKEN=$(curl -s --cacert server.pem https://localhost:31337/warp/v1/auth/token \
+export HARDCHARGER_TOKEN=$(curl -s --cacert server.pem https://localhost:31337/chargewire/v1/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"grant_type": "password", "username": "hardcharger", "password": "change-me"}' | jq -r .access_token)
 ```
