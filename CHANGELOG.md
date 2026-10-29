@@ -6,11 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-29
+
 ### Changed
 
 - dbt-hardcharger now uses the Chargewire protocol and drivers, the new name of the protocol
   `adbc-driver-hardcharger` speaks. Nothing changes in profiles, and it still works with
   Hardcharger servers released before the rename.
+- Require `adbc-driver-hardcharger` 2.1.0, the first driver release that speaks Chargewire;
+  CI tests the driver built from its v2.1.0 release commit, against Hardcharger 2.3.0.
+- The README's access-token example calls the server's renamed API root
+  (`/chargewire/v1/auth/token`), served by Hardcharger 2.3.0 and newer.
 
 ## [2.0.2] - 2026-10-22
 

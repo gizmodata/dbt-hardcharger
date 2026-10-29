@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dbt-hardcharger"
-version = "2.0.2"
+version = "2.1.0"
 description = "The dbt adapter for Hardcharger™, GizmoData™'s DuckDB 2.0 server"
 readme = "README.md"
 authors = [{ name = "GizmoData", email = "support@gizmodata.com" }]
@@ -23,17 +23,18 @@ classifiers = [
     "Topic :: Database",
 ]
 keywords = ["dbt", "hardcharger", "chargewire", "duckdb", "adbc", "gizmodata"]
-# Floors are the latest releases (2026-10-19); CI's lowest-dependencies job installs exactly
-# these. CI builds adbc-driver-hardcharger from a pinned commit of gizmodata/hardcharger-adbc
-# (.github/hardcharger-adbc.ref) until its PyPI release; the floor below is what the wheel
-# depends on, and release.yml refuses to publish while PyPI has no such version.
+# Floors are the latest releases (2026-10-19; adbc-driver-hardcharger 2026-10-29); CI's
+# lowest-dependencies job installs exactly these. CI builds adbc-driver-hardcharger from the
+# commit of its release at the floor (.github/hardcharger-adbc.ref, gizmodata/hardcharger-adbc
+# v2.1.0); the floor below is what the wheel depends on, and release.yml refuses to publish
+# while PyPI has no such version.
 dependencies = [
     # dbt's own packages within their minor version, as dbt adapters do: a new dbt minor
     # release gets its own dbt-hardcharger release.
     "dbt-core~=1.12.6",
     "dbt-common~=1.39.0",
     "dbt-adapters~=1.24.5",
-    "adbc-driver-hardcharger>=2.0.0",
+    "adbc-driver-hardcharger>=2.1.0",
     "pyarrow>=26.0.0",
     "duckdb>=1.5.6",
     "pandas>=3.0.6",
