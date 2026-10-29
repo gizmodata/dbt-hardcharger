@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Database",
 ]
-keywords = ["dbt", "hardcharger", "warp-sql", "duckdb", "adbc", "gizmodata"]
+keywords = ["dbt", "hardcharger", "chargewire", "duckdb", "adbc", "gizmodata"]
 # Floors are the latest releases (2026-10-19); CI's lowest-dependencies job installs exactly
 # these. CI builds adbc-driver-hardcharger from a pinned commit of gizmodata/hardcharger-adbc
 # (.github/hardcharger-adbc.ref) until its PyPI release; the floor below is what the wheel

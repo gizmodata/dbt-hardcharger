@@ -103,9 +103,11 @@ class ReadmeServer:
                 break
             try:
                 with urllib.request.urlopen(
-                    url="https://127.0.0.1:31337/warp", timeout=2, context=context
+                    url="https://127.0.0.1:31337/chargewire", timeout=2, context=context
                 ):
                     return
+            except urllib.error.HTTPError:
+                return  # it answered (a server from before the rename answers 404 here)
             except (urllib.error.URLError, OSError) as error:
                 if "CERTIFICATE_REQUIRED" in str(error):
                     return

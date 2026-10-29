@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- dbt-hardcharger now uses the Chargewire protocol and drivers, the new name of the protocol
+  `adbc-driver-hardcharger` speaks. Nothing changes in profiles, and it still works with
+  Hardcharger servers released before the rename.
+
 ## [2.0.2] - 2026-10-22
 
 ### Fixed
@@ -111,9 +117,9 @@ Hardcharger server's (2.0.0); the 0.1.0 builds before it were never published.
   the Developer Certificate of Origin sign-off, SECURITY.md, CODE_OF_CONDUCT.md, the LICENSE
   copyright line, and https clone URLs in the README.
 - The driver is built from the hardcharger-adbc commit pinned in `.github/hardcharger-adbc.ref`
-  (`13f4eb4`: Warp SQL protocol 1.0.0, on warp-sql-adbc `a81c326`, tested against
+  (`13f4eb4`: Chargewire protocol 1.0.0, on chargewire-adbc `a81c326`, tested against
   `hardcharger-server` 2.0.0-rc.1); moving the pin is its own change, merged with a green CI run.
-  With it, browser sign-in runs on the server's own port (Warp SQL spec §4.3): the profile's
+  With it, browser sign-in runs on the server's own port (Chargewire spec §4.3): the profile's
   `oauth_url` and `oauth_port` are gone (an `oauth_browser` without `auth_type: external` is
   still refused), and a plain-HTTP server reached with TLS is refused with the driver's own
   message ("speaks plain HTTP, not TLS").

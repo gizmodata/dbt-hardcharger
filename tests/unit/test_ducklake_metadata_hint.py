@@ -23,7 +23,7 @@ ROLLBACK_FAILURE_FLIGHTSQL = (
     'Failed to execute query \\"ROLLBACK\\": "} (InvalidArgument; ExecuteIngest)'
 )
 ROLLBACK_FAILURE = (
-    "INVALID_ARGUMENT: [warpsql] bulk ingest into t: TransactionContext Error: "
+    "INVALID_ARGUMENT: [chargewire] bulk ingest into t: TransactionContext Error: "
     'Failed to commit: Failed to execute query "ROLLBACK": (sql_error, HTTP 400)'
 )
 # As reproduced when the metadata Postgres closed the connection before COMMIT

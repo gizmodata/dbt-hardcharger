@@ -14,13 +14,13 @@
   <a href="https://pypi.org/project/dbt-hardcharger/"><img src="https://img.shields.io/pepy/dt/dbt-hardcharger.svg" alt="PyPI downloads"></a>
   <a href="https://www.getdbt.com"><img src="https://img.shields.io/badge/dbt--core-1.12-FF694B.svg?logo=dbt&logoColor=white" alt="dbt-core 1.12"></a>
   <a href="https://github.com/gizmodata/hardcharger-adbc"><img src="https://img.shields.io/badge/driver-Hardcharger%20ADBC-f15a24.svg" alt="Hardcharger ADBC driver"></a>
-  <a href="https://github.com/gizmodata/warp-sql"><img src="https://img.shields.io/badge/protocol-Warp%20SQL-31a8db.svg" alt="Warp SQL protocol"></a>
+  <a href="https://github.com/gizmodata/chargewire"><img src="https://img.shields.io/badge/protocol-Chargewire-31a8db.svg" alt="Chargewire protocol"></a>
   <a href="https://github.com/gizmodata/hardcharger"><img src="https://img.shields.io/badge/server-Hardcharger-f15a24.svg" alt="Hardcharger"></a>
   <a href="https://github.com/gizmodata/dbt-hardcharger/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg" alt="Apache 2.0 license"></a>
   <a href="https://gizmodata.com"><img src="https://img.shields.io/badge/by-GizmoData%E2%84%A2-f15a24.svg" alt="GizmoData™"></a>
 </p>
 
-<h3 align="center">Build your dbt project on Hardcharger: remote DuckDB 2.0, over Warp SQL.</h3>
+<h3 align="center">Build your dbt project on Hardcharger: remote DuckDB 2.0, over Chargewire.</h3>
 
 ---
 
@@ -29,7 +29,7 @@
 The [dbt](https://www.getdbt.com) adapter for [Hardcharger™](https://github.com/gizmodata/hardcharger),
 GizmoData™'s DuckDB 2.0 server. dbt connects through the
 [Hardcharger ADBC driver](https://github.com/gizmodata/hardcharger-adbc) (`adbc-driver-hardcharger`),
-which speaks [Warp SQL](https://github.com/gizmodata/warp-sql) over HTTPS: Arrow results, bulk
+which speaks [Chargewire](https://github.com/gizmodata/chargewire) over HTTPS: Arrow results, bulk
 ingest, TLS by default, and every Hardcharger sign-in.
 
 - 🧱 **Every materialization**: table, view, incremental (`append`, `delete+insert`, `merge`,
@@ -187,7 +187,7 @@ dbt show --select big_spenders
 | Option | Default | Description |
 | --- | --- | --- |
 | `host` | (required) | The server's host name. |
-| `port` | `31337` | The server's Warp SQL port. |
+| `port` | `31337` | The server's Chargewire port. |
 | `database` | the server's | The catalog dbt builds in (also `catalog`, `dbname`). |
 | `schema` | the server's | The schema dbt builds in. |
 | `auth_type` | `password` (`token` when a `token` is given) | `password`, `token`, `client_certificate` or `external` (browser sign-in). |

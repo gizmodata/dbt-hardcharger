@@ -20,6 +20,7 @@ from dbt.adapters.hardcharger.connections import (
     HardchargerCredentials,
 )
 from tests.conftest import start_server, stop_server
+from tests.support.legacy_protocol import api_root
 
 WHOAMI_SQL = """
 {{ config(materialized='table') }}
@@ -44,9 +45,11 @@ def open_connection(**credentials) -> Connection:
 
 
 def issue_token(server) -> str:
-    """An access token from the server's password grant (Warp SQL's /warp/v1/auth/token)."""
+    """An access token from the server's password grant (Chargewire's /chargewire/v1/auth/token)."""
+    context = ssl.create_default_context(cafile=str(server.certs["ca"]))
+    root = api_root(base_url=server.base_url, context=context)
     request = urllib.request.Request(
-        url=f"{server.base_url}/warp/v1/auth/token",
+        url=f"{server.base_url}{root}/auth/token",
         data=json.dumps(
             obj={
                 "grant_type": "password",
@@ -57,7 +60,6 @@ def issue_token(server) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    context = ssl.create_default_context(cafile=str(server.certs["ca"]))
     with urllib.request.urlopen(url=request, context=context, timeout=10) as response:
         return json.load(fp=response)["access_token"]
 
@@ -278,7 +280,7 @@ def oauth_server(tmp_path_factory, server_home, idp_issuer):
             CLIENT_ID,
             "--oauth-client-secret",
             CLIENT_SECRET,
-            # Browser sign-in runs on the server's own port (Warp SQL §4.3); the redirect URI
+            # Browser sign-in runs on the server's own port (Chargewire §4.3); the redirect URI
             # names 127.0.0.1, where the tests dial it.
             "--oauth-base-url",
             "{base_url}",

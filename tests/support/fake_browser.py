@@ -1,6 +1,6 @@
 """A stand-in for the user's browser in the browser sign-in tests, run by the driver with the
 sign-in URL as its last argument. It opens the URL and follows the identity provider's
-redirect back to the server's callback (on the server's own port, Warp SQL §4.3), as a browser
+redirect back to the server's callback (on the server's own port, Chargewire §4.3), as a browser
 does after the user signs in. The argument before the URL is the code
 the mock identity provider hands out ("code-ok..." it then accepts, anything else it refuses).
 (Not an environment variable: the Go runtime in the driver library keeps the environment it
